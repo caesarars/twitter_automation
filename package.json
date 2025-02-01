@@ -1,0 +1,23 @@
+{
+  "name": "twitter-bot",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "axios": "^1.7.9",
+    "connect-mongo": "^5.1.0",
+    "cors": "^2.8.5",
+    "cron": "^3.5.0",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "mongoose": "^8.9.6",
+    "mongose": "^0.0.2-security",
+    "twitter-api-v2": "^1.19.0",
+    "vercel": "^40.1.0"
+  }
+}
