@@ -2,7 +2,7 @@
     "version": 2,
     "functions": {
       "api/index.js": {
-        "schedule": "0 */1 * * *"
+        "cron": "0 */1 * * *"
       }
     }
   }
