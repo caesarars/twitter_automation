@@ -1,8 +1,8 @@
 {
-    "version": 2,
-    "functions": {
-      "api/index.js": {
-        "cron": "0 */1 * * *"
-      }
+  "crons": [
+    {
+      "path": "/api/index",
+      "schedule": "0 */1 * * *"
     }
-  }
+  ]
+}
