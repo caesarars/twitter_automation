@@ -26,6 +26,7 @@ const getTweet = async () => {
         // Fetch tweets where is_posted is false
         const products = await Tweet.find({ "is_posted": false });
         // Map the results to get an array of tweet texts
+        console.log("products : " , products);
         return products.map(product => product.tweet);
     } catch (err) {
         console.error("Error fetching tweets:", err);
