@@ -11,19 +11,11 @@ const Tweet = new mongoose.Schema({
         type : String , 
         required : true
     },
-    productName : {
-        type : String,
-        required : true
-    },
     is_posted : {
         type : Boolean,
         required : true
     },
-    createdAt : {
-        type : Date,
-        default : Date.now
-    },
-    updatedAt : {
+    created_tt : {
         type : Date,
         default : Date.now
     }
