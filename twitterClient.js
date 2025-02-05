@@ -8,9 +8,6 @@ const client = new TwitterApi({
     accessSecret : process.env.ACCESS_SECRET,
 })
 
-console.log(process.env.APP_KEY)
-console.log(process.env.API_SECRET)
-
 
 const bearer = new TwitterApi(process.env.BEARER_TOKEN);
 

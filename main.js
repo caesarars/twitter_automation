@@ -4,7 +4,7 @@ const express = require("express");
 const app = express();
 const port = process.env.PORT || 4003;
 const mongoose = require('mongoose');
-const Tweet = require("./models/tweet")
+const Tweets = require("./models/tweets")
 
 
 const { twitterClient } = require("./twitterClient");
@@ -24,10 +24,13 @@ mongoose.connect(mongoURI, {
 const getTweet = async () => {
     try {
         // Fetch tweets where is_posted is false
-        const products = await Tweet.find({ "is_posted": false });
-        // Map the results to get an array of tweet texts
-        console.log("products : " , products);
-        return products.map(product => product.tweet);
+        const products = await Tweets.find({})
+        if (products) 
+        {
+              // Map the results to get an array of tweet texts
+            console.log("products : " , products);
+            return products.map(product => product.tweet);
+        }
     } catch (err) {
         console.error("Error fetching tweets:", err);
         return []; // Return an empty array in case of error
@@ -63,6 +66,7 @@ const tweet = async () => {
     }
 };
 
+getTweet();
 
 // Vercel serverless function
 module.exports = async (req, res) => {
