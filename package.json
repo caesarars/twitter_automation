@@ -18,6 +18,7 @@
     "mongoose": "^8.9.6",
     "mongose": "^0.0.2-security",
     "twitter-api-v2": "^1.19.0",
-    "vercel": "^40.1.0"
+    "vercel": "^40.1.0",
+    "redis": "^4.6.13"
   }
 }
