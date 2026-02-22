@@ -14,6 +14,8 @@ const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-1.5-flash";
 const REDIS_URL = process.env.REDIS_URL;
 const REDIS_LAST_KEY = process.env.REDIS_LAST_KEY || "twitter:last_slug";
+const REDIS_RATE_LIMIT_KEY = process.env.REDIS_RATE_LIMIT_KEY || "twitter:rate_limited";
+const RATE_LIMIT_TTL_SEC = parseInt(process.env.RATE_LIMIT_TTL_SEC || "86400", 10); // default 24h
 
 const truncate = (text, maxLen = 280) => {
   if (!text) return "";
@@ -79,6 +81,14 @@ const tweet = async () => {
     }
 
     const redis = await getRedis();
+
+    // If previously rate-limited, skip Gemini + tweeting to save API calls
+    const rateLimited = redis ? await redis.get(REDIS_RATE_LIMIT_KEY) : null;
+    if (rateLimited) {
+      console.log("Rate limit flag is set. Skipping Gemini and tweet.");
+      return;
+    }
+
     const lastSlug = redis ? await redis.get(REDIS_LAST_KEY) : null;
 
     const pick = summaries.find((item) => {
@@ -114,6 +124,16 @@ const tweet = async () => {
   } catch (err) {
     if (err.response && err.response.status === 429) {
       console.error("Rate limit exceeded. Try again later.");
+
+      try {
+        const redis = await getRedis();
+        if (redis) {
+          await redis.set(REDIS_RATE_LIMIT_KEY, "1", { EX: RATE_LIMIT_TTL_SEC });
+          console.log(`Rate limit flag set for ${RATE_LIMIT_TTL_SEC}s.`);
+        }
+      } catch (e) {
+        console.error("Failed to set rate limit flag in Redis:", e);
+      }
     } else {
       console.error("Error posting tweet:", err);
     }
