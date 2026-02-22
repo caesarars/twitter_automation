@@ -140,7 +140,7 @@ if (require.main === module) {
     console.log("Listening to port:", port);
   });
 
-  const job = new CronJob("*/30 * * * *", async () => {
+  const job = new CronJob("*/85 * * * *", async () => {
     await tweet();
   }, null, true, "Asia/Jakarta");
 
