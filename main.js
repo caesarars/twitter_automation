@@ -15,7 +15,9 @@ const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-1.5-flash";
 const REDIS_URL = process.env.REDIS_URL;
 const REDIS_LAST_KEY = process.env.REDIS_LAST_KEY || "twitter:last_slug";
 const REDIS_RATE_LIMIT_KEY = process.env.REDIS_RATE_LIMIT_KEY || "twitter:rate_limited";
+const REDIS_POST_STEP_KEY = process.env.REDIS_POST_STEP_KEY || "twitter:post_step";
 const RATE_LIMIT_TTL_SEC = parseInt(process.env.RATE_LIMIT_TTL_SEC || "86400", 10); // default 24h
+const PROMO_URL = process.env.PROMO_URL || "https://www.cryptobriefs.net/brief";
 
 const truncate = (text, maxLen = 280) => {
   if (!text) return "";
@@ -24,6 +26,8 @@ const truncate = (text, maxLen = 280) => {
 };
 
 let redisClient;
+let inMemoryPostStep = 0;
+
 const getRedis = async () => {
   if (!REDIS_URL) return null;
   if (!redisClient) {
@@ -50,7 +54,26 @@ const generateTweetWithGemini = async ({ title, content }) => {
     throw new Error("GEMINI_API_KEY is missing");
   }
 
-  const prompt = `Write a tweet in English with Samuel L. Jackson-style swagger (tough tone, no profanity), 1–2 sentences, max 280 characters.\n\nTitle: ${title}\nContent: ${content}\n\nReturn only the tweet text.`;
+  const prompt = `You are writing one high-engagement post for X (Twitter).
+Goal: maximize meaningful engagement (replies, reposts, likes) while sounding human and credible.
+
+Rules:
+- Language: English.
+- Voice: Samuel L. Jackson-style swagger (bold, confident, no profanity).
+- Length: 1-2 short sentences, maximum 260 characters.
+- Start with a strong hook in the first 6-10 words.
+- Make one clear takeaway from the content (insight, warning, or opportunity).
+- End with a light CTA that invites replies (example style: "Agree or nah?" / "What do you think?").
+- Use natural, conversational wording. Avoid clickbait, hype spam, and generic motivational fluff.
+- Do not use emojis.
+- Hashtags: use 0-1 relevant hashtag only if truly useful.
+- Do not include links.
+
+Context:
+Title: ${title}
+Content: ${content}
+
+Return only the final tweet text, no quotes, no labels, no extra formatting.`;
 
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`;
 
@@ -71,15 +94,77 @@ const generateTweetWithGemini = async ({ title, content }) => {
   return truncate(text.trim(), 280);
 };
 
+const generatePromoTweetWithGemini = async () => {
+  if (!GEMINI_API_KEY) {
+    return truncate(
+      `Skip the noise and get fast crypto market briefs you can actually use. Check ${PROMO_URL} and tell me your take.`,
+      280
+    );
+  }
+
+  const prompt = `You are writing one promotional post for X (Twitter).
+Goal: get clicks and replies for this website: ${PROMO_URL}
+
+Rules:
+- Language: English.
+- Voice: Samuel L. Jackson-style swagger (bold, confident, no profanity).
+- Length: 1-2 short sentences, max 260 characters.
+- Mention a concrete value proposition: fast, clear crypto brief/summaries.
+- Include this exact link once: ${PROMO_URL}
+- End with a light CTA inviting replies.
+- No emojis.
+- No hashtags.
+- Avoid spammy marketing phrases.
+
+Return only the final tweet text, no quotes, no labels, no extra formatting.`;
+
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`;
+
+  const { data } = await axios.post(
+    url,
+    {
+      contents: [
+        {
+          role: "user",
+          parts: [{ text: prompt }]
+        }
+      ]
+    },
+    { timeout: 20000 }
+  );
+
+  const text = data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
+  const promoTweet = text.trim();
+
+  if (!promoTweet) {
+    return truncate(
+      `Skip the noise and get fast crypto market briefs you can actually use. Check ${PROMO_URL} and tell me your take.`,
+      280
+    );
+  }
+
+  return truncate(promoTweet, 280);
+};
+
+const getPostStep = async (redis) => {
+  if (!redis) return inMemoryPostStep;
+  const raw = await redis.get(REDIS_POST_STEP_KEY);
+  const parsed = Number.parseInt(raw || "0", 10);
+  if (!Number.isFinite(parsed) || parsed < 0) return 0;
+  return parsed % 3;
+};
+
+const setPostStep = async (redis, step) => {
+  const safeStep = ((step % 3) + 3) % 3;
+  if (!redis) {
+    inMemoryPostStep = safeStep;
+    return;
+  }
+  await redis.set(REDIS_POST_STEP_KEY, String(safeStep));
+};
+
 const tweet = async () => {
   try {
-    console.log("Fetching summaries...");
-    const summaries = await fetchSummaries();
-    if (!summaries.length) {
-      console.log("No summary available to post.");
-      return;
-    }
-
     const redis = await getRedis();
 
     // If previously rate-limited, skip Gemini + tweeting to save API calls
@@ -89,25 +174,42 @@ const tweet = async () => {
       return;
     }
 
-    const lastSlug = redis ? await redis.get(REDIS_LAST_KEY) : null;
+    const postStep = await getPostStep(redis); // 0 -> normal, 1 -> normal, 2 -> promo
+    const isPromoPost = postStep === 2;
+    let tweetText = "";
+    let pickSlug = null;
 
-    const pick = summaries.find((item) => {
-      const slug = item.slug || `${item.title || ""}|${item.content || ""}`;
-      return !lastSlug || slug !== lastSlug;
-    });
+    if (isPromoPost) {
+      console.log("Promo turn detected. Generating promo tweet...");
+      tweetText = await generatePromoTweetWithGemini();
+    } else {
+      console.log("Fetching summaries...");
+      const summaries = await fetchSummaries();
+      if (!summaries.length) {
+        console.log("No summary available to post.");
+        return;
+      }
 
-    if (!pick) {
-      console.log("All summaries are duplicates. Skipping tweet.");
-      return;
+      const lastSlug = redis ? await redis.get(REDIS_LAST_KEY) : null;
+
+      const pick = summaries.find((item) => {
+        const slug = item.slug || `${item.title || ""}|${item.content || ""}`;
+        return !lastSlug || slug !== lastSlug;
+      });
+
+      if (!pick) {
+        console.log("All summaries are duplicates. Skipping tweet.");
+        return;
+      }
+
+      pickSlug = pick.slug || `${pick.title || ""}|${pick.content || ""}`;
+
+      console.log("Generating tweet with Gemini...");
+      tweetText = await generateTweetWithGemini({
+        title: pick.title || "",
+        content: pick.content || ""
+      });
     }
-
-    const pickSlug = pick.slug || `${pick.title || ""}|${pick.content || ""}`;
-
-    console.log("Generating tweet with Gemini...");
-    const tweetText = await generateTweetWithGemini({
-      title: pick.title || "",
-      content: pick.content || ""
-    });
 
     if (!tweetText) {
       console.log("Gemini returned empty tweet.");
@@ -119,8 +221,11 @@ const tweet = async () => {
     console.log("Tweet posted successfully:", response);
 
     if (redis) {
-      await redis.set(REDIS_LAST_KEY, pickSlug);
+      if (pickSlug) {
+        await redis.set(REDIS_LAST_KEY, pickSlug);
+      }
     }
+    await setPostStep(redis, postStep + 1);
   } catch (err) {
     if (err.response && err.response.status === 429) {
       console.error("Rate limit exceeded. Try again later.");
